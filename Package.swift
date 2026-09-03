@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 //
 // The `swift-tools-version` declares the minimum version of Swift required to
 // build this package. Do not remove it.
@@ -10,7 +10,7 @@ let package = Package(
   platforms: [
     .macOS(.v10_14),
     .iOS(.v12),
-    .watchOS(.v4),
+    .watchOS(.v9),
     .tvOS(.v12)
   ],
   products: [
@@ -25,5 +25,5 @@ let package = Package(
       path: "CoreBluetoothMock/"
     )
   ],  
-  swiftLanguageVersions: [.v5]
+  swiftLanguageModes: [.v5]
 )

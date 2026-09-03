@@ -31,7 +31,7 @@
 import CoreBluetooth
 
 /// The possible states of a Core Bluetooth manager.
-public enum CBMManagerState: Int {
+public enum CBMManagerState: Int, Sendable {
     /// The manager’s state is unknown.
     case unknown
     /// A state that indicates the connection with the system service was momentarily lost.
