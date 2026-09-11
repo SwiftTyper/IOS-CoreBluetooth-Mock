@@ -146,6 +146,31 @@ public class CBMCentralSpec {
         CBMPeripheralManagerMock.centralDidConnect(self)
     }
 
+    /// Simulates the central discovering characteristics of a service published
+    /// by the simulated local device.
+    ///
+    /// The returned characteristics can be used to simulate subscriptions,
+    /// reads and writes.
+    /// - Parameters:
+    ///   - characteristicUUIDs: An optional list of characteristic UUIDs to
+    ///                          discover. If `nil`, all characteristics of the
+    ///                          service are returned.
+    ///   - serviceUUID: The UUID of the service to discover characteristics of.
+    /// - Returns: The discovered characteristics, or an empty list if the central
+    ///            is not connected or no such service has been published.
+    public func simulateCharacteristicDiscovery(_ characteristicUUIDs: [CBMUUID]? = nil,
+                                                forService serviceUUID: CBMUUID) -> [CBMMutableCharacteristic] {
+        guard isConnected else {
+            NSLog("Warning: Central \(identifier) is not connected")
+            return []
+        }
+        return CBMPeripheralManagerMock.existingManagers
+            .flatMap { $0.publishedServices }
+            .filter { $0.uuid == serviceUUID }
+            .flatMap { ($0.characteristics ?? []).compactMap { $0 as? CBMMutableCharacteristic } }
+            .filter { characteristicUUIDs?.contains($0.uuid) ?? true }
+    }
+
     /// Simulates the central disconnecting from the simulated local device.
     ///
     /// All peripheral managers will be notified about the central unsubscribing

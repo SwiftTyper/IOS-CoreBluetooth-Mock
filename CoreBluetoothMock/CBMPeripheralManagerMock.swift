@@ -523,6 +523,11 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         return isAdvertising ? advertisementData : nil
     }
 
+    /// The services published by this manager.
+    internal var publishedServices: [CBMMutableService] {
+        return services
+    }
+
     /// Returns the local ``CBMCentralMock`` instance for the given central
     /// specification, creating it if needed.
     /// - Parameter spec: The central specification.
