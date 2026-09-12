@@ -273,6 +273,7 @@ public class CBMCentralSpec {
     public func simulateWriteRequest(_ data: Data,
                                      for characteristic: CBMMutableCharacteristic,
                                      offset: Int = 0,
+                                     withResponse: Bool,
                                      completion: @escaping (Result<Void, Error>) -> Void) {
         guard isConnected else {
             completion(.failure(CBMError(.notConnected)))
@@ -283,7 +284,7 @@ public class CBMCentralSpec {
             return
         }
         manager.central(self, didRequestWrite: data, to: characteristic,
-                        offset: offset, withResponse: true, completion: completion)
+                        offset: offset, withResponse: withResponse, completion: completion)
     }
 
     /// Simulates a write command (write without response) sent from the central.
