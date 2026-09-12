@@ -286,28 +286,6 @@ public class CBMCentralSpec {
         manager.central(self, didRequestWrite: data, to: characteristic,
                         offset: offset, withResponse: withResponse, completion: completion)
     }
-
-    /// Simulates a write command (write without response) sent from the central.
-    ///
-    /// The peripheral manager which published the characteristic will receive
-    /// ``CBMPeripheralManagerDelegate/peripheralManager(_:didReceiveWrite:)-1d33g``
-    /// a connection interval later. The central is not notified about the result.
-    /// - Parameters:
-    ///   - data: The data to write.
-    ///   - characteristic: The characteristic to write.
-    public func simulateWriteCommand(_ data: Data,
-                                     for characteristic: CBMMutableCharacteristic) {
-        guard isConnected else {
-            NSLog("Warning: Central \(identifier) is not connected")
-            return
-        }
-        guard let manager = CBMPeripheralManagerMock.manager(owning: characteristic) else {
-            NSLog("Warning: Characteristic \(characteristic.uuid) has not been published")
-            return
-        }
-        manager.central(self, didRequestWrite: data, to: characteristic,
-                        offset: 0, withResponse: false, completion: nil)
-    }
 }
 
 extension CBMCentralSpec: Equatable {
