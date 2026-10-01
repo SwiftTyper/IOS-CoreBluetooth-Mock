@@ -38,119 +38,21 @@ import CoreBluetooth
 /// ``CBMCentralManagerMock/simulatePowerOn()``, ``CBMCentralManagerMock/simulatePowerOff()``
 /// and other simulation methods.
 open class CBMPeripheralManagerMock: CBMPeripheralManager {
-
-    /// A list of all mock peripheral managers instantiated by user.
     private static var managers: [WeakRef<CBMPeripheralManagerMock>] = []
-    /// A list of mock centrals currently connected to the simulated device.
     private static var centrals: [WeakRef<CBMCentralSpec>] = []
-    /// A mutex queue for managing managers and centrals.
     private static let mutex: DispatchQueue = DispatchQueue(label: "Mutex")
 
     /// Size of the transmit queue for notifications and indications.
-    ///
     /// Only this many updates can be sent without waiting for
     /// ``CBMPeripheralManagerDelegate/peripheralManagerIsReady(toUpdateSubscribers:)-1n35f``.
     private static let updateQueueSize = 20
 
-    /// A list of all existing mock peripheral managers.
-    internal static var existingManagers: [CBMPeripheralManagerMock] {
-        return mutex.sync {
-            managers.compactMap { $0.ref }
-        }
-    }
-
-    /// A list of all mock centrals connected to the simulated device.
-    internal static var connectedCentrals: [CBMCentralSpec] {
-        return mutex.sync {
-            centrals.compactMap { $0.ref }
-        }
-    }
-
-    /// This method is called whenever the state of the Bluetooth adapter or
-    /// the authorization status changes.
-    ///
-    /// All managers that are not in powered on state stop advertising and forget
-    /// all published services and connected centrals.
-    internal static func notifyManagers() {
-        let existingManagers = self.existingManagers
-        existingManagers.forEach { manager in
-            // ...stop advertising and remove all services if state changed
-            // to any other state than `.poweredOn`.
-            if manager.state != .poweredOn {
-                manager.reset()
-            }
-            // ...and notify delegate.
-            manager.queue.async {
-                manager.delegate?.peripheralManagerDidUpdateState(manager)
-            }
-        }
-        // When the adapter is turned off, all centrals get disconnected.
-        if CBMCentralManagerMock.managerState != .poweredOn {
-            disconnectAllCentrals()
-        }
-        // Compact the list, if any of managers were disposed.
-        mutex.sync {
-            managers.removeAll { $0.ref == nil }
-        }
-    }
-
-    /// Removes all peripheral manager instances and disconnects all mock centrals.
-    ///
-    /// This method is called from ``CBMCentralManagerMock/tearDownSimulation()``.
-    internal static func tearDown() {
-        mutex.sync {
-            managers.removeAll()
-        }
-        disconnectAllCentrals()
-    }
-
-    private static func disconnectAllCentrals() {
-        let connectedCentrals = self.connectedCentrals
-        mutex.sync {
-            centrals.removeAll()
-        }
-        connectedCentrals.forEach { $0.isConnected = false }
-    }
-
-    /// Method called when a mock central has connected to the simulated device.
-    /// - Parameter central: The central that has connected.
-    internal static func centralDidConnect(_ central: CBMCentralSpec) {
-        mutex.sync {
-            centrals.removeAll { $0.ref == nil }
-            if !centrals.contains(where: { $0.ref === central }) {
-                centrals.append(WeakRef(central))
-            }
-        }
-    }
-
-    /// Method called when a mock central has disconnected from the simulated device.
-    ///
-    /// All peripheral managers will be notified about the central unsubscribing from
-    /// all characteristics it was subscribed to.
-    /// - Parameter central: The central that has disconnected.
-    internal static func centralDidDisconnect(_ central: CBMCentralSpec) {
-        mutex.sync {
-            centrals.removeAll { $0.ref == nil || $0.ref === central }
-        }
-        existingManagers.forEach { manager in
-            manager.central(didDisconnect: central)
-        }
-    }
-
-    /// Returns the mock peripheral manager that has published the service containing
-    /// the given characteristic, or `nil` if the characteristic was not published.
-    /// - Parameter characteristic: The characteristic to look for.
-    internal static func manager(owning characteristic: CBMCharacteristic) -> CBMPeripheralManagerMock? {
-        return existingManagers.first { $0.owns(characteristic) }
-    }
-
-    /// The dispatch queue used for all callbacks.
+    /// The dispatch queue used for all callbacks and all access to the state below.
     internal let queue: DispatchQueue
-    /// A mutex queue for synchronizing access to the transmit queue.
-    private let mutex: DispatchQueue = DispatchQueue(label: "Mutex")
-    /// A list of published services.
+    /// A key set on ``queue``, used to detect whether the current code runs on it.
+    private let queueKey = DispatchSpecificKey<Void>()
+    
     private var services: [CBMMutableService] = []
-    /// The data that is currently being advertised.
     private var advertisementData: [String : Any]?
     /// A map of centrals known to this peripheral manager.
     private var centrals: [UUID : CBMCentralMock] = [:]
@@ -161,20 +63,16 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
     /// A flag set to true when ``updateValue(_:for:onSubscribedCentrals:)``
     /// returned `false` due to the transmit queue being full.
     private var readyNotificationPending: Bool = false
-    /// A flag set to true few milliseconds after the manager is created.
-    /// Some features, like the state are not available when manager hasn't
-    /// been initialized yet.
-    private var initialized: Bool {
-        // This method returns true if the manager is added to
-        // the list of managers.
-        // Calling tearDownSimulation() will remove all managers
-        // from that list, making them uninitialized again.
-        CBMPeripheralManagerMock.mutex.sync {
-            CBMPeripheralManagerMock.managers.contains { $0.ref == self }
-        }
-    }
 
-    // MARK: - Initializers
+    /// This simulation method is called when a mock peripheral manager was
+    /// created with an option to restore the state
+    /// (``CBMPeripheralManagerOptionRestoreIdentifierKey``).
+    ///
+    /// The returned map, if not `nil`, will be passed to
+    /// ``CBMPeripheralManagerDelegate/peripheralManager(_:willRestoreState:)-4tv1g`` before creation.
+    /// - SeeAlso: ``CBMPeripheralManagerRestoredStateServicesKey``
+    /// - SeeAlso: ``CBMPeripheralManagerRestoredStateAdvertisementDataKey``
+    public static var simulateStateRestoration: ((_ identifierKey: String) -> [String : Any]?)?
 
     public init() {
         self.queue = DispatchQueue.main
@@ -214,31 +112,6 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         initialize()
     }
 
-    private func initialize() {
-        queue.async { [weak self] in
-            if let self = self {
-                CBMPeripheralManagerMock.mutex.sync {
-                    CBMPeripheralManagerMock.managers.append(WeakRef(self))
-                }
-                self.delegate?.peripheralManagerDidUpdateState(self)
-            }
-        }
-    }
-
-    // MARK: - Peripheral manager simulation methods
-
-    /// This simulation method is called when a mock peripheral manager was
-    /// created with an option to restore the state
-    /// (``CBMPeripheralManagerOptionRestoreIdentifierKey``).
-    ///
-    /// The returned map, if not `nil`, will be passed to
-    /// ``CBMPeripheralManagerDelegate/peripheralManager(_:willRestoreState:)-4tv1g`` before creation.
-    /// - SeeAlso: ``CBMPeripheralManagerRestoredStateServicesKey``
-    /// - SeeAlso: ``CBMPeripheralManagerRestoredStateAdvertisementDataKey``
-    public static var simulateStateRestoration: ((_ identifierKey: String) -> [String : Any]?)?
-
-    // MARK: - CBPeripheralManager mock methods
-
     open override var state: CBMManagerState {
         guard initialized else {
             return .unknown
@@ -275,9 +148,8 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
     }
 
     open override func startAdvertising(_ advertisementData: [String : Any]?) {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
-        // Advertising can be started only once.
+        
         guard !isAdvertising else {
             queue.async { [weak self] in
                 if let self = self {
@@ -300,9 +172,10 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         if !unsupportedKeys.isEmpty {
             NSLog("Warning: Advertisement data keys \(unsupportedKeys) are not supported and will be ignored")
         }
+        
         self.advertisementData = data
+        
         queue.async { [weak self] in
-            // Advertising may have been stopped in the meantime.
             if let self = self, self.state == .poweredOn, self.advertisementData != nil {
                 self.isAdvertising = true
                 self.delegate?.peripheralManagerDidStartAdvertising(self, error: nil)
@@ -311,7 +184,6 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
     }
 
     open override func stopAdvertising() {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
         isAdvertising = false
         advertisementData = nil
@@ -319,31 +191,32 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
 
     open override func setDesiredConnectionLatency(_ latency: CBMPeripheralManagerConnectionLatency,
                                                    for central: CBMCentral) {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
-        // The central must be known to this peripheral manager.
+        
         guard let central = central as? CBMCentralMock,
               centrals[central.identifier] === central else {
+            NSLog("[CoreBluetoothMock] API MISUSE: Central \(central.identifier) not known")
             return
         }
+        
         central.spec.desiredConnectionLatency = latency
     }
 
     open override func add(_ service: CBMMutableService) {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
-        // The same service instance can be added only once.
+        
         guard !services.contains(where: { $0 === service }) else {
             NSLog("[CoreBluetoothMock] API MISUSE: Service \(service.uuid) has already been added")
-            report(service, error: CBMError(.invalidParameters))
+            notifyDidAddServiceCallback(service, error: CBMError(.invalidParameters))
             return
         }
-        // All characteristics must be mutable.
+        
         guard let characteristics = (service.characteristics ?? []) as? [CBMMutableCharacteristic] else {
             NSLog("[CoreBluetoothMock] API MISUSE: All characteristics of service \(service.uuid) must be CBMMutableCharacteristic")
-            report(service, error: CBMError(.invalidParameters))
+            notifyDidAddServiceCallback(service, error: CBMError(.invalidParameters))
             return
         }
+        
         // Characteristics with cached values must be read-only.
         let readOnly = characteristics.allSatisfy { characteristic in
             characteristic.value == nil ||
@@ -352,44 +225,36 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         }
         guard readOnly else {
             NSLog("[CoreBluetoothMock] API MISUSE: Characteristics with cached values must be read-only")
-            report(service, error: CBMError(.invalidParameters))
+            notifyDidAddServiceCallback(service, error: CBMError(.invalidParameters))
             return
         }
         services.append(service)
-        report(service, error: nil)
-    }
-
-    private func report(_ service: CBMMutableService, error: Error?) {
-        queue.async { [weak self] in
-            if let self = self, self.state == .poweredOn {
-                self.delegate?.peripheralManager(self, didAdd: service, error: error)
-            }
-        }
+        notifyDidAddServiceCallback(service, error: nil)
     }
 
     open override func remove(_ service: CBMMutableService) {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
-        guard let index = services.firstIndex(where: { $0 === service }) else {
-            return
-        }
+        
+        guard let index = services.firstIndex(where: { $0 === service })
+        else { return }
+        
         services.remove(at: index)
         unsubscribeAllCentrals(from: service)
     }
 
     open override func removeAllServices() {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
         services.forEach { unsubscribeAllCentrals(from: $0) }
         services.removeAll()
     }
 
     open override func respond(to request: CBMATTRequest, withResult result: CBMATTError.Code) {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return }
-        // The request must be pending.
-        guard let request = request as? CBMATTRequestMock,
-              let index = pendingRequests.firstIndex(where: { $0 === request }) else {
+        
+        guard
+            let request = request as? CBMATTRequestMock,
+            let index = pendingRequests.firstIndex(where: { $0 === request })
+        else {
             NSLog("[CoreBluetoothMock] API MISUSE: \(request) is not pending, or has already been responded to")
             return
         }
@@ -400,44 +265,36 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
     open override func updateValue(_ value: Data,
                                    for characteristic: CBMMutableCharacteristic,
                                    onSubscribedCentrals centrals: [CBMCentral]?) -> Bool {
-        // Peripheral manager must be in powered on state.
         guard ensurePoweredOn() else { return false }
-        // The characteristic must have been published by this peripheral manager.
+        
         guard owns(characteristic) else {
             NSLog("[CoreBluetoothMock] API MISUSE: Characteristic \(characteristic.uuid) has not been added to \(self)")
             return false
         }
-        // Get the list of subscribed and connected centrals that should be notified.
+        
         let targets = (characteristic.subscribedCentrals ?? [])
             .compactMap { $0 as? CBMCentralMock }
             .filter { central in
                 centrals?.contains(where: { $0.identifier == central.identifier }) ?? true
             }
             .filter { $0.spec.isConnected }
-        // If no central is subscribed, the update is dropped, but the method succeeds.
-        guard !targets.isEmpty else {
-            return true
-        }
+        
+        guard !targets.isEmpty else { return true }
+        
         // Emulate the limited size of the transmit queue.
-        let enqueued: Bool = mutex.sync {
-            guard pendingUpdates < CBMPeripheralManagerMock.updateQueueSize else {
-                readyNotificationPending = true
-                return false
-            }
-            pendingUpdates += 1
-            return true
-        }
-        guard enqueued else {
+        guard pendingUpdates < CBMPeripheralManagerMock.updateQueueSize else {
+            readyNotificationPending = true
             return false
         }
-        // Each central receives the update a connection interval later.
-        var delay: TimeInterval = 0
+        pendingUpdates += 1
+
+        let delivery = DispatchGroup()
         targets.forEach { central in
             let spec = central.spec
-            // Values longer than the maximum update value length are truncated.
             let data = Data(value.prefix(central.maximumUpdateValueLength))
-            delay = max(delay, spec.connectionInterval)
+            delivery.enter()
             queue.asyncAfter(deadline: .now() + spec.connectionInterval) { [weak self] in
+                defer { delivery.leave() }
                 guard let self = self, self.state == .poweredOn,
                       spec.isConnected, self.owns(characteristic),
                       characteristic.subscribedCentrals?.contains(where: {
@@ -448,19 +305,17 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
                 spec.delegate?.central(spec, didReceiveUpdate: data, for: characteristic)
             }
         }
-        // When the update is sent, there is space in the transmit queue again.
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+        
+        // When the update is sent to all centrals, there is space in the transmit queue again.
+        delivery.notify(queue: queue) { [weak self] in
             guard let self = self else { return }
-            let notifyReady: Bool = self.mutex.sync {
-                self.pendingUpdates -= 1
-                if self.readyNotificationPending &&
-                   self.pendingUpdates < CBMPeripheralManagerMock.updateQueueSize {
-                    self.readyNotificationPending = false
-                    return true
-                }
-                return false
+            self.pendingUpdates -= 1
+            guard self.readyNotificationPending,
+                  self.pendingUpdates < CBMPeripheralManagerMock.updateQueueSize else {
+                return
             }
-            if notifyReady && self.state == .poweredOn {
+            self.readyNotificationPending = false
+            if self.state == .poweredOn {
                 self.delegate?.peripheralManagerIsReady(toUpdateSubscribers: self)
             }
         }
@@ -477,107 +332,76 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         fatalError("L2CAP mock is not implemented")
     }
 
-    fileprivate func ensurePoweredOn() -> Bool {
-        guard state == .poweredOn else {
-            NSLog("[CoreBluetoothMock] API MISUSE: \(self) can only accept this command while in the powered on state")
-            return false
-        }
-        return true
-    }
-
-    /// Stops advertising, removes all services, pending requests and centrals.
-    ///
-    /// This method is called when the Bluetooth adapter is turned off.
-    private func reset() {
-        isAdvertising = false
-        advertisementData = nil
-        services.forEach { unsubscribeAllCentrals(from: $0) }
-        services.removeAll()
-        pendingRequests.removeAll()
-        centrals.removeAll()
-        mutex.sync {
-            pendingUpdates = 0
-            readyNotificationPending = false
+    open override var debugDescription: String {
+        return onQueue {
+            "<CBMPeripheralManager: services: \(services.count), advertising: \(isAdvertising)>"
         }
     }
+}
 
-    private func unsubscribeAllCentrals(from service: CBMService) {
-        service.characteristics?
-            .compactMap { $0 as? CBMMutableCharacteristic }
-            .forEach { $0.subscribedCentrals = nil }
-    }
-
-    // MARK: - Central simulation methods
-
-    /// Returns whether the given characteristic has been published by this manager.
-    /// - Parameter characteristic: The characteristic to look for.
-    internal func owns(_ characteristic: CBMCharacteristic) -> Bool {
-        return services.contains { service in
-            service.characteristics?.contains { $0 === characteristic } ?? false
-        }
-    }
-
-    /// The data that is currently being advertised, or `nil` if the manager
-    /// is not advertising.
-    internal var currentAdvertisementData: [String : Any]? {
-        return isAdvertising ? advertisementData : nil
-    }
-
-    /// The services published by this manager.
-    internal var publishedServices: [CBMMutableService] {
-        return services
-    }
-
-    /// Returns the local ``CBMCentralMock`` instance for the given central
-    /// specification, creating it if needed.
-    /// - Parameter spec: The central specification.
-    private func central(for spec: CBMCentralSpec) -> CBMCentralMock {
-        if let central = centrals[spec.identifier] {
-            return central
-        }
-        let central = CBMCentralMock(basedOn: spec)
-        centrals[spec.identifier] = central
-        return central
-    }
-
-    /// Method called when a mock central has disconnected.
-    ///
-    /// The delegate will be notified about the central unsubscribing from all
-    /// characteristics.
-    /// - Parameter spec: The central that has disconnected.
-    fileprivate func central(didDisconnect spec: CBMCentralSpec) {
-        guard let central = centrals.removeValue(forKey: spec.identifier) else {
-            return
-        }
-        pendingRequests.removeAll { $0.central.identifier == spec.identifier }
-        services.forEach { service in
-            service.characteristics?
-                .compactMap { $0 as? CBMMutableCharacteristic }
-                .forEach { characteristic in
-                    guard characteristic.subscribedCentrals?.contains(where: {
-                        $0.identifier == central.identifier
-                    }) ?? false else {
-                        return
-                    }
-                    characteristic.subscribedCentrals?.removeAll {
-                        $0.identifier == central.identifier
-                    }
-                    queue.async { [weak self] in
-                        if let self = self, self.state == .poweredOn {
-                            self.delegate?.peripheralManager(self,
-                                                             central: central,
-                                                             didUnsubscribeFrom: characteristic)
-                        }
-                    }
+/// used by CBMCentralManagerMock
+extension CBMPeripheralManagerMock {
+    internal static func notifyManagers() {
+        self.existingManagers.forEach { manager in
+            manager.queue.async {
+                if manager.state != .poweredOn {
+                    // ...stop advertising and remove all services if state changed
+                    // to any other state than `.poweredOn`.
+                    manager.reset()
                 }
+                manager.delegate?.peripheralManagerDidUpdateState(manager)
+            }
+        }
+        if CBMCentralManagerMock.managerState != .poweredOn {
+            disconnectAllCentrals()
+        }
+        mutex.sync {
+            managers.removeAll { $0.ref == nil }
+        }
+    }
+    
+    /// This method is called from ``CBMCentralManagerMock/tearDownSimulation()``.
+    internal static func tearDown() {
+        mutex.sync {
+            managers.removeAll()
+        }
+        disconnectAllCentrals()
+    }
+}
+    
+/// used by CBMCentralSpec
+extension CBMPeripheralManagerMock {
+    internal var currentAdvertisementData: [String : Any]? {
+        return onQueue { isAdvertising ? advertisementData : nil }
+    }
+    
+    internal var publishedServices: [CBMMutableService] {
+        return onQueue { services }
+    }
+
+    internal static func centralDidConnect(_ central: CBMCentralSpec) {
+        mutex.sync {
+            if !centrals.contains(where: { $0.ref === central }) {
+                centrals.append(WeakRef(central))
+            }
         }
     }
 
-    /// Simulates a mock central enabling notifications or indications on the
-    /// given characteristic.
-    /// - Parameters:
-    ///   - spec: The central specification.
-    ///   - characteristic: The target characteristic.
+    internal static func centralDidDisconnect(_ central: CBMCentralSpec) {
+        mutex.sync {
+            centrals.removeAll { $0.ref == nil || $0.ref === central }
+        }
+        existingManagers.forEach { manager in
+            manager.central(didDisconnect: central)
+        }
+    }
+
+    internal static func manager(owning characteristic: CBMCharacteristic) -> CBMPeripheralManagerMock? {
+        return existingManagers.first { manager in
+            manager.onQueue { manager.owns(characteristic) }
+        }
+    }
+    
     internal func central(_ spec: CBMCentralSpec,
                           didSubscribeTo characteristic: CBMMutableCharacteristic) {
         queue.asyncAfter(deadline: .now() + spec.connectionInterval) { [weak self] in
@@ -595,12 +419,7 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
             self.delegate?.peripheralManager(self, central: central, didSubscribeTo: characteristic)
         }
     }
-
-    /// Simulates a mock central disabling notifications or indications on the
-    /// given characteristic.
-    /// - Parameters:
-    ///   - spec: The central specification.
-    ///   - characteristic: The target characteristic.
+    
     internal func central(_ spec: CBMCentralSpec,
                           didUnsubscribeFrom characteristic: CBMMutableCharacteristic) {
         queue.asyncAfter(deadline: .now() + spec.connectionInterval) { [weak self] in
@@ -616,16 +435,7 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
             self.delegate?.peripheralManager(self, central: central, didUnsubscribeFrom: characteristic)
         }
     }
-
-    /// Simulates a read request sent from a mock central.
-    ///
-    /// Characteristics with cached values are handled automatically, without
-    /// involving the delegate.
-    /// - Parameters:
-    ///   - spec: The central specification.
-    ///   - characteristic: The target characteristic.
-    ///   - offset: The offset of the first byte to read.
-    ///   - completion: The completion handler called with the result of the request.
+    
     internal func central(_ spec: CBMCentralSpec,
                           didRequestReadOf characteristic: CBMMutableCharacteristic,
                           offset: Int,
@@ -672,16 +482,7 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
             self.delegate?.peripheralManager(self, didReceiveRead: request)
         }
     }
-
-    /// Simulates a write request or command sent from a mock central.
-    /// - Parameters:
-    ///   - spec: The central specification.
-    ///   - data: The data to write.
-    ///   - characteristic: The target characteristic.
-    ///   - offset: The offset of the first byte to write.
-    ///   - withResponse: Whether the write is a request (`true`) or a command (`false`).
-    ///   - completion: The completion handler called with the result of the request.
-    ///                 Not called for write commands.
+    
     internal func central(_ spec: CBMCentralSpec,
                           didRequestWrite data: Data,
                           to characteristic: CBMMutableCharacteristic,
@@ -697,8 +498,8 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
         }
         // Only writable characteristics can be written.
         let permitted = withResponse ?
-            characteristic.properties.contains(.write) :
-            characteristic.properties.contains(.writeWithoutResponse)
+        characteristic.properties.contains(.write) :
+        characteristic.properties.contains(.writeWithoutResponse)
         guard permitted else {
             reply(.failure(CBMATTError(.writeNotPermitted)))
             return
@@ -730,8 +531,134 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
             self.delegate?.peripheralManager(self, didReceiveWrite: [request])
         }
     }
+    
+    internal static var existingManagers: [CBMPeripheralManagerMock] {
+        return mutex.sync {
+            managers.compactMap { $0.ref }
+        }
+    }
+}
 
-    open override var debugDescription: String {
-        return "<CBMPeripheralManager: services: \(services.count), advertising: \(isAdvertising)>"
+extension CBMPeripheralManagerMock {
+    private static func disconnectAllCentrals() {
+        let connectedCentrals = mutex.sync {
+            centrals.compactMap { $0.ref }
+        }
+        mutex.sync {
+            centrals.removeAll()
+        }
+        connectedCentrals.forEach { $0.isConnected = false }
+    }
+    
+    private var initialized: Bool {
+        // This method returns true if the manager is added to
+        // the list of managers.
+        // Calling tearDownSimulation() will remove all managers
+        // from that list, making them uninitialized again.
+        CBMPeripheralManagerMock.mutex.sync {
+            CBMPeripheralManagerMock.managers.contains { $0.ref == self }
+        }
+    }
+
+    private func initialize() {
+        queue.setSpecific(key: queueKey, value: ())
+        queue.async { [weak self] in
+            if let self = self {
+                CBMPeripheralManagerMock.mutex.sync {
+                    CBMPeripheralManagerMock.managers.append(WeakRef(self))
+                }
+                self.delegate?.peripheralManagerDidUpdateState(self)
+            }
+        }
+    }
+
+    /// Runs the given block on ``queue`` and returns its result.
+    ///
+    /// Used by methods called from outside of the queue, e.g. by ``CBMCentralSpec``,
+    /// which need to read the state synchronously. When already on the queue,
+    /// the block is executed directly to avoid a deadlock.
+    private func onQueue<T>(_ block: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return block()
+        }
+        return queue.sync(execute: block)
+    }
+
+    private func ensurePoweredOn() -> Bool {
+        guard state == .poweredOn else {
+            NSLog("[CoreBluetoothMock] API MISUSE: \(self) can only accept this command while in the powered on state")
+            return false
+        }
+        return true
+    }
+
+    private func notifyDidAddServiceCallback(_ service: CBMMutableService, error: Error?) {
+        queue.async { [weak self] in
+            if let self = self, self.state == .poweredOn {
+                self.delegate?.peripheralManager(self, didAdd: service, error: error)
+            }
+        }
+    }
+
+    /// This method is called when the Bluetooth adapter is turned off.
+    private func reset() {
+        isAdvertising = false
+        advertisementData = nil
+        services.forEach { unsubscribeAllCentrals(from: $0) }
+        services.removeAll()
+        pendingRequests.removeAll()
+        centrals.removeAll()
+        pendingUpdates = 0
+        readyNotificationPending = false
+    }
+
+    private func unsubscribeAllCentrals(from service: CBMService) {
+        service.characteristics?
+            .compactMap { $0 as? CBMMutableCharacteristic }
+            .forEach { $0.subscribedCentrals = nil }
+    }
+    
+    private func owns(_ characteristic: CBMCharacteristic) -> Bool {
+        return services.contains { service in
+            service.characteristics?.contains { $0 === characteristic } ?? false
+        }
+    }
+
+    private func central(for spec: CBMCentralSpec) -> CBMCentralMock {
+        if let central = centrals[spec.identifier] {
+            return central
+        }
+        let central = CBMCentralMock(basedOn: spec)
+        centrals[spec.identifier] = central
+        return central
+    }
+
+    private func central(didDisconnect spec: CBMCentralSpec) {
+        queue.async { [weak self] in
+            guard let self = self,
+                  let central = self.centrals.removeValue(forKey: spec.identifier) else {
+                return
+            }
+            self.pendingRequests.removeAll { $0.central.identifier == spec.identifier }
+            self.services.forEach { service in
+                service.characteristics?
+                    .compactMap { $0 as? CBMMutableCharacteristic }
+                    .forEach { characteristic in
+                        guard characteristic.subscribedCentrals?.contains(where: {
+                            $0.identifier == central.identifier
+                        }) ?? false else {
+                            return
+                        }
+                        characteristic.subscribedCentrals?.removeAll {
+                            $0.identifier == central.identifier
+                        }
+                        if self.state == .poweredOn {
+                            self.delegate?.peripheralManager(self,
+                                                             central: central,
+                                                             didUnsubscribeFrom: characteristic)
+                        }
+                    }
+            }
+        }
     }
 }

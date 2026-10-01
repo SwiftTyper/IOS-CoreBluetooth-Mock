@@ -58,6 +58,7 @@ public protocol CBMPeripheralManagerDelegate: AnyObject {
     /// Use this method to synchronize your app's state with the state of the Bluetooth system.
     ///
     /// When mocking is enabled, the returned state is obtained using
+    ///
     /// ``CBMPeripheralManagerMock/simulateStateRestoration``.
     /// - Parameters:
     ///   - peripheral: The peripheral manager providing this information.

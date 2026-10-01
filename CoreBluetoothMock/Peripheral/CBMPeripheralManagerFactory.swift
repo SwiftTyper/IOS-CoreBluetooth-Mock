@@ -36,8 +36,6 @@ import CoreBluetooth
 /// on the environment. You may also instantiate the ``CBMPeripheralManagerMock`` or
 /// ``CBMPeripheralManagerNative`` without using this factory.
 ///
-/// - Note: The native `CBPeripheralManager` cannot be instantiated on tvOS and watchOS.
-///         On those platforms the mock implementation is always returned.
 public class CBMPeripheralManagerFactory {
 
     /// Returns the implementation of ``CBMPeripheralManager``, depending on the environment.

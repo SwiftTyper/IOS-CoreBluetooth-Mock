@@ -37,11 +37,6 @@ import CoreBluetooth
 /// devices (represented by ``CBMCentral`` objects). While a service is in the database, any
 /// connected central can see and connect to it.
 ///
-/// Before calling the `CBMPeripheralManager` methods, set the state of the peripheral manager
-/// object to powered on, as indicated by the ``CBMManagerState/poweredOn`` constant. This state
-/// indicates that the peripheral device (your iPhone or iPad, for instance) supports Bluetooth
-/// low energy and that Bluetooth is on and available for use.
-///
 /// Use ``CBMPeripheralManagerFactory`` to create an instance of the peripheral manager.
 /// On a simulator, or when mocking is forced, a ``CBMPeripheralManagerMock`` is returned,
 /// which interacts with simulated centrals defined using ``CBMCentralSpec``.
@@ -54,49 +49,21 @@ open class CBMPeripheralManager: NSObject {
     /// If you migrated to CoreBluetooth Mock and are getting an error with
     /// instantiating a ``CBMPeripheralManager`` instance, use
     /// ``CBMPeripheralManagerFactory/instance(delegate:queue:forceMock:)`` instead.
-    /// - Parameter dummy: This can be anything.
     public init(_ dummy: Bool) {
         // No-op.
     }
 
-    /// The delegate object that will receive peripheral events.
     open weak var delegate: CBMPeripheralManagerDelegate?
 
-    /// The current state of the manager, initially set to ``CBMManagerState/unknown``.
-    ///
-    /// Updates are provided by required delegate method
-    /// ``CBMPeripheralManagerDelegate/peripheralManagerDidUpdateState(_:)``.
     open var state: CBMManagerState { return .unknown }
 
-    /// Whether or not the peripheral is currently advertising data.
     @objc dynamic open internal(set) var isAdvertising: Bool = false
 
-    /// The current authorization status for using Bluetooth.
-    ///
-    /// - Note:
-    /// This method returns the value set as ``CBMCentralManagerMock/simulateAuthorization(_:)``
-    /// or, if set to `nil`, the native result returned by `CBPeripheralManager`.
     @available(iOS, introduced: 13.0, deprecated: 13.1)
     @available(macOS, introduced: 10.15)
     @available(tvOS, introduced: 13.0, deprecated: 13.1)
     @available(watchOS, introduced: 6.0, deprecated: 6.1)
-    open var authorization: CBMManagerAuthorization {
-        if let rawValue = CBMCentralManagerMock.bluetoothAuthorization,
-           let authorization = CBMManagerAuthorization(rawValue: rawValue) {
-            return authorization
-        } else {
-            #if os(iOS) || os(macOS)
-            return CBPeripheralManager().authorization
-            #else
-            // The native peripheral manager cannot be instantiated on this platform.
-            if #available(tvOS 13.1, watchOS 6.1, *) {
-                return CBPeripheralManager.authorization
-            } else {
-                return .notDetermined
-            }
-            #endif
-        }
-    }
+    open var authorization: CBMManagerAuthorization { .notDetermined }
 
     /// The current authorization status for using Bluetooth.
     ///
