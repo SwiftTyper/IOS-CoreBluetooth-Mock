@@ -209,7 +209,7 @@ open class CBMPeripheralManager: NSObject {
         // Empty default implementation.
     }
 
-    /// Removes a published service from the local GATT database.
+    /// Removes an L2CAP channel over the peripheral manager.
     ///
     /// When the peripheral manager unpublishes the channel, it calls the
     /// ``CBMPeripheralManagerDelegate/peripheralManager(_:didUnpublishL2CAPChannel:error:)-7t9nh``
