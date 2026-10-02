@@ -55,12 +55,24 @@ public class CBMCentralSpec {
     public let connectionInterval: TimeInterval
     /// The delegate that will receive notifications and indications.
     public var delegate: CBMCentralSpecDelegate?
+    /// A serial queue synchronizing access to the connection state, which is
+    /// shared by all peripheral managers.
+    private let mutex: DispatchQueue = DispatchQueue(label: "Mutex")
+    private var _isConnected: Bool = false
+    private var _desiredConnectionLatency: CBMPeripheralManagerConnectionLatency?
+
     /// A flag indicating whether the central is connected to the simulated device.
-    public internal(set) var isConnected: Bool = false
+    public internal(set) var isConnected: Bool {
+        get { return mutex.sync { _isConnected } }
+        set { mutex.sync { _isConnected = newValue } }
+    }
     /// The connection latency requested by a peripheral manager using
     /// ``CBMPeripheralManager/setDesiredConnectionLatency(_:for:)``, or `nil`
     /// if it was not set.
-    public internal(set) var desiredConnectionLatency: CBMPeripheralManagerConnectionLatency?
+    public internal(set) var desiredConnectionLatency: CBMPeripheralManagerConnectionLatency? {
+        get { return mutex.sync { _desiredConnectionLatency } }
+        set { mutex.sync { _desiredConnectionLatency = newValue } }
+    }
 
     /// Creates a specification of a mock central.
     /// - Parameters:
@@ -193,10 +205,6 @@ public class CBMCentralSpec {
     /// `.indicate` property, otherwise the request is ignored.
     /// - Parameter characteristic: The characteristic to subscribe to.
     public func simulateSubscription(to characteristic: CBMMutableCharacteristic) {
-        guard isConnected else {
-            NSLog("Warning: Central \(identifier) is not connected")
-            return
-        }
         guard !characteristic.properties.isDisjoint(with: [
             .notify, .indicate, .notifyEncryptionRequired, .indicateEncryptionRequired
         ]) else {
@@ -218,10 +226,6 @@ public class CBMCentralSpec {
     /// a connection interval later.
     /// - Parameter characteristic: The characteristic to unsubscribe from.
     public func simulateUnsubscription(from characteristic: CBMMutableCharacteristic) {
-        guard isConnected else {
-            NSLog("Warning: Central \(identifier) is not connected")
-            return
-        }
         guard let manager = CBMPeripheralManagerMock.manager(owning: characteristic) else {
             NSLog("Warning: Characteristic \(characteristic.uuid) has not been published")
             return
