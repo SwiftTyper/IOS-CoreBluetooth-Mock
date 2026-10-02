@@ -31,8 +31,6 @@
 import XCTest
 @testable import CoreBluetoothMock
 
-// MARK: - Code under test
-
 /// A Heart Rate sensor implemented with the peripheral role.
 ///
 /// This is the kind of class a test would normally exercise: it owns a
@@ -84,8 +82,6 @@ private class HeartRateSensor: NSObject, CBMPeripheralManagerDelegate {
     /// Number of clients currently subscribed to measurements.
     private(set) var subscriberCount: Int = 0
 
-    // MARK: Lifecycle
-
     /// Starts the sensor.
     /// - Parameter forceMock: Pass `true` to use the mock implementation on a
     ///                        physical device. On a simulator the mock is used
@@ -106,8 +102,6 @@ private class HeartRateSensor: NSObject, CBMPeripheralManagerDelegate {
             + withUnsafeBytes(of: energyExpended.littleEndian) { Data($0) }
         return manager.updateValue(value, for: measurement, onSubscribedCentrals: nil)
     }
-
-    // MARK: CBMPeripheralManagerDelegate
 
     func peripheralManagerDidUpdateState(_ peripheral: CBMPeripheralManager) {
         guard peripheral.state == .poweredOn else {
@@ -169,8 +163,6 @@ private class HeartRateSensor: NSObject, CBMPeripheralManagerDelegate {
     }
 }
 
-// MARK: - Client
-
 /// Collects notifications sent to a mock central.
 private class HeartRateClient: CBMCentralSpecDelegate {
     var onMeasurement: ((Data) -> ())?
@@ -181,8 +173,6 @@ private class HeartRateClient: CBMCentralSpecDelegate {
         onMeasurement?(value)
     }
 }
-
-// MARK: - Tests
 
 /// Demonstrates driving a ``CBMPeripheralManagerMock`` from a ``CBMCentralSpec``.
 ///
@@ -351,8 +341,6 @@ class PeripheralManagerTest: XCTestCase {
         wait(for: [failed], timeout: 1.0)
     }
 }
-
-// MARK: - Helpers
 
 private extension XCTestCase {
 

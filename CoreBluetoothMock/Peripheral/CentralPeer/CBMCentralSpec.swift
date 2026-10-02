@@ -245,10 +245,6 @@ public class CBMCentralSpec {
     public func simulateReadRequest(for characteristic: CBMMutableCharacteristic,
                                     offset: Int = 0,
                                     completion: @escaping (Result<Data, Error>) -> Void) {
-        guard isConnected else {
-            completion(.failure(CBMError(.notConnected)))
-            return
-        }
         guard let manager = CBMPeripheralManagerMock.manager(owning: characteristic) else {
             completion(.failure(CBMATTError(.attributeNotFound)))
             return
@@ -273,18 +269,37 @@ public class CBMCentralSpec {
     public func simulateWriteRequest(_ data: Data,
                                      for characteristic: CBMMutableCharacteristic,
                                      offset: Int = 0,
-                                     withResponse: Bool,
                                      completion: @escaping (Result<Void, Error>) -> Void) {
-        guard isConnected else {
-            completion(.failure(CBMError(.notConnected)))
-            return
-        }
         guard let manager = CBMPeripheralManagerMock.manager(owning: characteristic) else {
             completion(.failure(CBMATTError(.attributeNotFound)))
             return
         }
         manager.central(self, didRequestWrite: data, to: characteristic,
-                        offset: offset, withResponse: withResponse, completion: completion)
+                        offset: offset, withResponseCompletion: completion)
+    }
+    
+    /// Simulates a write command (write without response) sent from the central.
+    ///
+    /// The peripheral manager which published the characteristic will receive
+    /// ``CBMPeripheralManagerDelegate/peripheralManager(_:didReceiveWrite:)-1d33g``
+    /// a connection interval later. The peripheral manager must not respond to
+    /// the request.
+    ///
+    /// As with a real write command, no error is reported back. Invalid writes
+    /// are logged and dropped.
+    /// - Parameters:
+    ///   - data: The data to write.
+    ///   - characteristic: The characteristic to write.
+    ///   - offset: The offset of the first byte to write.
+    public func simulateWriteRequestWithoutResponse(_ data: Data,
+                                                 for characteristic: CBMMutableCharacteristic,
+                                                 offset: Int = 0) {
+        guard let manager = CBMPeripheralManagerMock.manager(owning: characteristic) else {
+            NSLog("[CoreBluetoothMock] Write command to characteristic \(characteristic.uuid) dropped: attribute not found")
+            return
+        }
+        manager.central(self, didRequestWrite: data, to: characteristic,
+                        offset: offset, withResponseCompletion: nil)
     }
 }
 

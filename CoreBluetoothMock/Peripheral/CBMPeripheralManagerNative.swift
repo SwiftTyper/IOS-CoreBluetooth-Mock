@@ -221,7 +221,6 @@ extension CBMPeripheralManagerNative {
         return mock
     }
 }
-#endif
 
 extension CBMPeripheralManagerNative {
   private class CBMPeripheralManagerDelegateWrapper: NSObject, CBPeripheralManagerDelegate {
@@ -366,3 +365,4 @@ extension CBMPeripheralManagerNative {
     }
   }
 }
+#endif

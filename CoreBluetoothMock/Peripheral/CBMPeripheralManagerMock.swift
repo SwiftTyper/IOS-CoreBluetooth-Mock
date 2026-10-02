@@ -487,26 +487,34 @@ extension CBMPeripheralManagerMock {
                           didRequestWrite data: Data,
                           to characteristic: CBMMutableCharacteristic,
                           offset: Int,
-                          withResponse: Bool,
-                          completion: ((Result<Void, Error>) -> Void)?) {
+                          withResponseCompletion: ((Result<Void, Error>) -> Void)?) {
         let queue = self.queue
         let interval = spec.connectionInterval
         let reply: (Result<Void, Error>) -> Void = { result in
             queue.asyncAfter(deadline: .now() + interval) {
-                completion?(result)
+                withResponseCompletion?(result)
             }
         }
+        let isWithResponse = withResponseCompletion != nil
         // Only writable characteristics can be written.
-        let permitted = withResponse ?
+        let permitted = isWithResponse ?
         characteristic.properties.contains(.write) :
         characteristic.properties.contains(.writeWithoutResponse)
         guard permitted else {
-            reply(.failure(CBMATTError(.writeNotPermitted)))
+            if isWithResponse {
+                reply(.failure(CBMATTError(.writeNotPermitted)))
+            } else {
+                NSLog("[CoreBluetoothMock] Write command to characteristic \(characteristic.uuid) dropped: write without response not permitted")
+            }
             return
         }
         // The maximum length of an attribute value is 512 bytes.
         guard offset + data.count <= 512 else {
-            reply(.failure(CBMATTError(.invalidAttributeValueLength)))
+            if isWithResponse {
+                reply(.failure(CBMATTError(.invalidAttributeValueLength)))
+            } else {
+                NSLog("[CoreBluetoothMock] Write command to characteristic \(characteristic.uuid) dropped: invalid attribute value length")
+            }
             return
         }
         let central = self.central(for: spec)
@@ -514,7 +522,7 @@ extension CBMPeripheralManagerMock {
                                         characteristic: characteristic,
                                         offset: offset,
                                         value: data,
-                                        completion: withResponse ? { _, result in
+                                        completion: isWithResponse ? { _, result in
             if result == .success {
                 reply(.success(()))
             } else {
@@ -524,10 +532,18 @@ extension CBMPeripheralManagerMock {
         queue.asyncAfter(deadline: .now() + interval) { [weak self] in
             guard let self = self, self.state == .poweredOn,
                   spec.isConnected, self.owns(characteristic) else {
-                reply(.failure(CBMError(.notConnected)))
+                if isWithResponse {
+                    reply(.failure(CBMError(.notConnected)))
+                } else {
+                    NSLog("[CoreBluetoothMock] Write command to characteristic \(characteristic.uuid) dropped: not connected")
+                }
                 return
             }
-            self.pendingRequests.append(request)
+
+            if isWithResponse {
+                self.pendingRequests.append(request)
+            }
+            
             self.delegate?.peripheralManager(self, didReceiveWrite: [request])
         }
     }
