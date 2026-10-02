@@ -366,7 +366,10 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
 
         // When the update is sent to all centrals, there is space in the transmit queue again.
         delivery.notify(queue: queue) { [weak self] in
-            guard let self = self else { return }
+            guard
+                let self = self,
+                self.state == .poweredOn
+            else { return }
             let ready: Bool = self.mutex.sync {
                 self.pendingUpdates -= 1
                 guard self.readyNotificationPending,
@@ -376,7 +379,7 @@ open class CBMPeripheralManagerMock: CBMPeripheralManager {
                 self.readyNotificationPending = false
                 return true
             }
-            if ready && self.state == .poweredOn {
+            if ready {
                 self.delegate?.peripheralManagerIsReady(toUpdateSubscribers: self)
             }
         }
@@ -524,11 +527,17 @@ extension CBMPeripheralManagerMock {
                 completion(result)
             }
         }
-        // Only readable characteristics can be read.
-        guard characteristic.properties.contains(.read) else {
+        guard state == .poweredOn, spec.isConnected else {
+            reply(.failure(CBMError(.notConnected)))
+            return
+        }
+        
+        guard characteristic.properties.contains(.read),
+              !characteristic.permissions.isDisjoint(with: [.readable, .readEncryptionRequired]) else {
             reply(.failure(CBMATTError(.readNotPermitted)))
             return
         }
+        
         // Characteristics with cached values are handled by the system.
         if let value = characteristic.value {
             guard offset <= value.count else {
@@ -538,6 +547,7 @@ extension CBMPeripheralManagerMock {
             reply(.success(value.subdata(in: offset..<value.count)))
             return
         }
+        
         let central = mutex.sync { self.central(for: spec) }
         let request = CBMATTRequestMock(central: central,
                                         characteristic: characteristic,
@@ -578,10 +588,20 @@ extension CBMPeripheralManagerMock {
             }
         }
         let isWithResponse = withResponseCompletion != nil
-        // Only writable characteristics can be written.
-        let permitted = isWithResponse ?
-        characteristic.properties.contains(.write) :
-        characteristic.properties.contains(.writeWithoutResponse)
+        guard state == .poweredOn, spec.isConnected else {
+            if isWithResponse {
+                reply(.failure(CBMError(.notConnected)))
+            } else {
+                NSLog("[CoreBluetoothMock] Write command to characteristic \(characteristic.uuid) dropped: not connected")
+            }
+            return
+        }
+        
+        let permitted = (isWithResponse ?
+            characteristic.properties.contains(.write) :
+            characteristic.properties.contains(.writeWithoutResponse)) &&
+            !characteristic.permissions.isDisjoint(with: [.writeable, .writeEncryptionRequired])
+        
         guard permitted else {
             if isWithResponse {
                 reply(.failure(CBMATTError(.writeNotPermitted)))
