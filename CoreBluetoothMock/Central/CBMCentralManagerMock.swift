@@ -947,6 +947,14 @@ open class CBMCentralManagerMock: CBMCentralManager {
     /// ``CBMCentralManager/cancelPeripheralConnection(_:)``.
     fileprivate var isReconnecting: Bool = false
     
+    /// The identifier of the connection request that was sent to the simulated device and
+    /// has not been completed yet, or `nil`.
+    ///
+    /// Every advertising packet of a device with a pending connection calls
+    /// ``connect(completion:)``. The request must be sent to the device only once, even if
+    /// more advertising packets are received before the connection is established.
+    private var pendingConnectionRequest: UUID?
+    
     /// A flag set to `true` when the device was scanned for the first time during
     /// a single scan. This is to ensure that the result is not delivered twice unless
     /// ``CBMCentralManagerScanOptionAllowDuplicatesKey`` flag is set.
@@ -1060,9 +1068,20 @@ open class CBMCentralManagerMock: CBMCentralManager {
             return
         }
         // If the device wasn't connected emulate connection request.
+        // The request has already been sent if the device advertised again in the meantime.
+        guard pendingConnectionRequest == nil else {
+            return
+        }
+        let requestId = UUID()
+        pendingConnectionRequest = requestId
         let result = delegate.peripheralDidReceiveConnectionRequest(mock)
         queue.asyncAfter(deadline: .now() + interval) { [weak self] in
-            if let self = self, self.state == .connecting {
+            // The connection could have been cancelled, or the request replaced, in the meantime.
+            guard let self = self, self.pendingConnectionRequest == requestId else {
+                return
+            }
+            self.pendingConnectionRequest = nil
+            if self.state == .connecting {
                 if case .success = result {
                     self.state = .connected
                     self._canSendWriteWithoutResponse = true
@@ -1080,6 +1099,7 @@ open class CBMCentralManagerMock: CBMCentralManager {
         // Cancel auto-reconnection.
         isReconnecting = false
         // Cancel pending connection.
+        pendingConnectionRequest = nil
         guard state != .connecting else {
             // As in the native implementation, the state changes to
             // `.disconnecting` and the delegate is notified afterwards.
@@ -1212,6 +1232,7 @@ open class CBMCentralManagerMock: CBMCentralManager {
     }
     
     fileprivate func closeManager() {
+        pendingConnectionRequest = nil
         state = .disconnected
         services = nil
         _canSendWriteWithoutResponse = false

@@ -323,6 +323,31 @@ class CentralManagerBehaviorTest: CentralBehaviorTestCase {
         XCTAssertEqual(peripheral.state, .connected)
     }
 
+    func testDeviceReceivesOneConnectionRequestWhileAdvertisingContinues() throws {
+        // The device advertises many times while the connection is being established.
+        device = TestDevice(advertisingInterval: 0.005, connectionInterval: 0.1)
+        CBMCentralManagerMock.simulatePeripherals([device.spec])
+        CBMCentralManagerMock.simulateInitialState(.poweredOn)
+        waitFor("Manager ready") { ready in
+            managerDelegate.didUpdateState = { _ in ready.fulfill() }
+            manager = CBMCentralManagerMock(delegate: managerDelegate, queue: nil)
+        }
+        let peripheral = try retrieveDevice()
+
+        var connections = 0
+        waitFor("Connected") { connected in
+            managerDelegate.didConnect = { _, _ in
+                connections += 1
+                connected.fulfill()
+            }
+            manager.connect(peripheral)
+        }
+        pause(0.3)
+
+        XCTAssertEqual(connections, 1)
+        XCTAssertEqual(device.connectionRequests, 1, "The device is asked to accept the connection only once")
+    }
+
     func testConnectionFailure() throws {
         setUpManager()
         let error = CBMError(.connectionFailed)

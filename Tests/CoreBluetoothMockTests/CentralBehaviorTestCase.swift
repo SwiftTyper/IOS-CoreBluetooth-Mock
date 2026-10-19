@@ -79,7 +79,11 @@ final class TestDevice: CBMPeripheralSpecDelegate {
     let notifyCharacteristic: CBMCharacteristicMock
     let otherCharacteristic: CBMCharacteristicMock
 
-    init(mtu: Int = 23, proximity: CBMProximity = .immediate, advertisedName: String = TestDevice.name) {
+    init(mtu: Int = 23,
+         proximity: CBMProximity = .immediate,
+         advertisedName: String = TestDevice.name,
+         advertisingInterval: TimeInterval = 0.05,
+         connectionInterval: TimeInterval = 0.01) {
         readCharacteristic = CBMCharacteristicMock(
             type: TestDevice.readChar, properties: [.read],
             descriptors: CBMDescriptorMock(type: TestDevice.userDescription))
@@ -105,11 +109,11 @@ final class TestDevice: CBMPeripheralSpecDelegate {
                     CBMAdvertisementDataServiceUUIDsKey: [TestDevice.serviceA],
                     CBMAdvertisementDataIsConnectable: true as NSNumber
                 ],
-                withInterval: 0.05)
+                withInterval: advertisingInterval)
             .connectable(name: TestDevice.name,
                          services: [serviceA, serviceB],
                          delegate: self,
-                         connectionInterval: 0.01,
+                         connectionInterval: connectionInterval,
                          mtu: mtu)
             .allowForRetrieval()
             .build()
