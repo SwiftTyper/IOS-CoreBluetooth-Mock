@@ -172,14 +172,16 @@ for details.
 
 ## Tests
 
-The tests of the library itself do not need a simulator or a device, as the mock does not use Bluetooth hardware:
+The tests of the library itself are in `Tests/CoreBluetoothMockTests`. They do not need a simulator or a device,
+as the mock does not use Bluetooth hardware, and every Swift file added to that folder is picked up automatically:
 
 ```bash
 swift test
 ```
 
 More tests, including the conformance tests that compare the mock with the native implementation on a physical device,
-are in the **Example** project (`Example/nRFBlinky.xcworkspace`, scheme `nRFBlinky_Tests`).
+are in the **Example** project (`Example/nRFBlinky.xcworkspace`, scheme `nRFBlinky_Tests`), in `Example/Tests`. That scheme
+runs the library tests as well, on an iOS simulator.
 
 ## Documentation
 
