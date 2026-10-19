@@ -170,6 +170,17 @@ prepared writes, and advertisement data other than the local name and service UU
 See [Mocking centrals](https://nordicsemi.github.io/IOS-CoreBluetooth-Mock/documentation/corebluetoothmock/mocking-centrals) 
 for details.
 
+## Tests
+
+The tests of the library itself do not need a simulator or a device, as the mock does not use Bluetooth hardware:
+
+```bash
+swift test
+```
+
+More tests, including the conformance tests that compare the mock with the native implementation on a physical device,
+are in the **Example** project (`Example/nRFBlinky.xcworkspace`, scheme `nRFBlinky_Tests`).
+
 ## Documentation
 
 The documentation of the library is available [here](https://nordicsemi.github.io/IOS-CoreBluetooth-Mock/documentation/corebluetoothmock).
