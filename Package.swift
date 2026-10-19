@@ -25,19 +25,11 @@ let package = Package(
       path: "CoreBluetoothMock/"
     ),
     // Tests of the library that do not need the example app, a simulator or a device.
-    // The other tests in `Example/Tests` run inside the example app, see the Xcode project.
+    // All Swift files in `Tests/CoreBluetoothMockTests` are included automatically.
+    // The other tests, in `Example/Tests`, run inside the example app, see the Xcode project.
     .testTarget(
       name: "CoreBluetoothMockTests",
-      dependencies: ["CoreBluetoothMock"],
-      path: "Example/Tests",
-      sources: [
-        "CentralBehaviorTestCase.swift",
-        "CentralManagerAdvancedBehaviorTest.swift",
-        "CentralManagerBehaviorTest.swift",
-        "PeripheralBehaviorTest.swift",
-        "PeripheralManagerBehaviorTest.swift",
-        "PeripheralManagerTest.swift"
-      ]
+      dependencies: ["CoreBluetoothMock"]
     )
   ],  
   swiftLanguageVersions: [.v5]
