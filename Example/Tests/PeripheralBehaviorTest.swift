@@ -613,6 +613,8 @@ class PeripheralBehaviorTest: CentralBehaviorTestCase {
 
     // MARK: - L2CAP
 
+    // `openL2CAPChannel(_:)` is not available on macOS.
+    #if !os(macOS)
     func testOpeningL2CAPChannelReportsNotSupported() throws {
         guard #available(iOS 11.0, *) else { throw XCTSkip("Requires iOS 11") }
         setUpManager()
@@ -629,6 +631,7 @@ class PeripheralBehaviorTest: CentralBehaviorTestCase {
             peripheral.openL2CAPChannel(0x80)
         }
     }
+    #endif
 
     // MARK: - Delegate
 
